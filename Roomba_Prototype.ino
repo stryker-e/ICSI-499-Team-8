@@ -41,6 +41,9 @@ byte Chars[10][9] {
            {'9',1,1,1,1,0,1,1,0},//9
            };
 
+char bumpRight = '0';
+char bumpLeft = '0';
+
 void setup() {
 
   //Sets the speed (baud rate) for the serial communication.
@@ -49,10 +52,10 @@ void setup() {
   //Sets the data rate in bits per second (baud) for serial data transmission.
   Serial.begin(19200);
 
+  delay(2000);
+
   //configures the devide detect pin into output mode. 
   pinMode(ddPin, OUTPUT);
-
-  delay(2000);
 
   //Pulses the BRC pin in the Roomba to wake it up
   wakeUp();
@@ -60,7 +63,7 @@ void setup() {
   //Starts the Roomba and puts it in safe mode
   startSafe();
 
-  Serial.println("Robo Jumbo");
+  Serial.println("Robo Jumbo: Ready to Roll");
 
   //reset seven segment
   turnOff();
@@ -83,11 +86,11 @@ void loop() {
     //if the current state is HIGH then the button went from off to on:
     if (buttonState == HIGH) {
       changeMap();
-      drive(100,-2000 );
-      delay(1000);
-      drive(0,0);
-      Serial.println("Button Works");
-      Roomba.write("\x8d\x02");
+      //testDrive();
+      playSong(1);
+      driveUntilBump();
+      //Serial.println("Button Works");
+      
       //The Roomba Spins in a half circle
       //turnCW(100, 180);
       
@@ -171,7 +174,7 @@ void driveWheels(int right, int left)
   Roomba.write(right);
   Roomba.write(left >> 8);
   Roomba.write(left);
-  }
+ }
 
 //Controls the raw forward and backward motion of Roomba’s drive wheels 
 //independently. It takes four data bytes, which are interpreted as two 16-bit signed values using two’s 
@@ -190,26 +193,21 @@ void driveWheelsPWM(int rightPWM, int leftPWM)
   Roomba.write(leftPWM);
 }
 
-//---------------------------------------------------------------
+//Turns clockwise by driving with a radius of -1
 void turnCW(unsigned short velocity, unsigned short degrees)
 {
   drive(velocity, -1);
   clamp(velocity, 0, 500);
   delay(6600);
-  //delay((1580 + 2.25*velocity)/velocity*degrees);
-  //delay((-0.03159720835 * velocity + 21.215270835) * degrees);
   drive(0,0);
 }
 
-//---------------------------------------------------------------
+//Turns counter-clockwise by driving with a radius of 1
 void turnCCW(unsigned short velocity, unsigned short degrees)
 {
   drive(velocity, 1); 
   clamp(velocity, 0, 500);
   delay(6600);
-  //delay(2708.3333/velocity*degrees);
-  //delay((1580 + 2.25*velocity)/velocity*degrees);
-  //delay((-0.03159720835 * velocity + 21.215270835) * degrees);
   drive(0,0);
 }
 
@@ -253,6 +251,60 @@ void seekDock(void)
   Roomba.write(143);
 }
 
+void checkBumperSensors()
+{
+  bumpRight = '0';
+  bumpLeft = '0';
+  char sensorbytes[10]; // variable to hold the returned 10 bytes
+  // from iRobot Create
+  
+  Roomba.write((byte)142); // get sensor packets
+  Roomba.write((byte)1); // sensor group packet ID 1, size 10
+  // bytes, contains packets: 7-16
+  delay(64);
+  // wipe old sensor data
+  char i = 0;
+  while (i < 10) {
+    sensorbytes[i++] = 0;
+  }
+  i = 0;
+  while(Roomba.available()) 
+  {
+    int c = Roomba.read();
+    sensorbytes[i++] = c;
+  }
+  
+  bumpRight = sensorbytes[0] & 0x01; 
+  // if right bumper is triggered sensorbytes[0] is: 00000001
+  // bitwise AND with 0x01, i.e. 00000001 equals 1
+  // see: http://arduino.cc/en/Reference/BitwiseAnd 
+  bumpLeft = sensorbytes[0] & 0x02; 
+  // if left bumper is triggered sensorbytes[0] is: 00000010
+  // bitwise AND with 0x02, i.e. 00000010 equals 2
+  
+  // So if the right bumper is triggered bumpRight is 1 
+  // (if not triggered then 0)
+  // if the left bumper is triggered bumpLeft is 2 
+  // (if not triggered then 0)
+  
+  Serial.print(bumpRight);
+  Serial.print(" ");
+  Serial.println(bumpLeft);
+}
+
+
+void driveUntilBump()
+{
+  drive(100, 32768);
+  while(bumpRight != 1 && bumpLeft != 1){
+    checkBumperSensors();
+  }
+  drive(0, 0);
+  playSong(2);
+}
+
+
+
 void displayDigit(int digit)
 {
  //Conditions for displaying segment A
@@ -291,4 +343,59 @@ void turnOff()
   digitalWrite(E,LOW);
   digitalWrite(F,LOW);
   digitalWrite(G,LOW);
+}
+
+void playSong(int songNumber)
+{
+  switch (songNumber)
+  { 
+    case 1: 
+     //New song: Serial sequence: [140] [Song Number] [Song Length] [Note Number 1] [Note Duration 1] 
+  //[Note Number 2] [Note Duration 2], etc. 
+  // Song opcode: [140] Song number: 1 [01] Song length: 12 [0c] (110 BPM) 
+  //Note 1: C 60 [3c] Note 1 Duration: 1/4 9 [09]
+  //Note 2: D# 63 [3f] Note 2 Duration: 1/4 9 [09] 
+  //Note 3: F 65 [41] Note 3 Duration: Dotted 1/8 6 [06]
+  //Note 4: D# 63 [3f] Note 4 Duration: 1/16 + 1/8 8 [08] 
+  //Note 5: F 65 [41] Note 5 Duration: 1/8 4 [04]
+  //Note 6: F 65 [41] Note 6 Duration: 1/8 4 [04] 
+  //Note 7: F 65 [41] Note 7 Duration: 1/8 4 [04]
+  //Note 8: A# 70 [46] Note 8 Duration: 1/8 4 [04] 
+  //Note 9: Ab 68 [44] Note 9 Duration: 1/8 4 [04]
+  //Note 10: G 67 [43] Note 10 Duration: 1/16 2 [02] 
+  //Note 11: F 65 [41] Note 11 Duration: 1/8 4 [04]
+  //Note 12: G 67 [43] Note 12 Duration: 1/16 + 1/4 11 [0b]
+  Roomba.write("\x8c\x01\x0c\x3c\x24\x3f\x20\x41\x18\x3f\x20\x41\x10\x41\x10\x41\x10\x46\x10\x44\x10\x43\x08\x41\x10\x43\x2c"); 
+  Roomba.write("\x8d\x01");
+
+      break;
+
+   case 2: 
+     //New song: Serial sequence: [140] [Song Number] [Song Length] [Note Number 1] [Note Duration 1] 
+  //[Note Number 2] [Note Duration 2], etc. 
+  // Song opcode: [140] Song number: 1 [01] Song length: 11 [0b] (110 BPM) 
+  //Note 1: G 67 [43] Note 1 Duration: 1/4 36 [24]
+  //Note 2: A# 70 [46] Note 2 Duration: 1/4 36 [24] 
+  //Note 3: C 72 [48] Note 3 Duration: Dotted 1/8 24 [18]
+  //Note 4: F 65 [41] Note 4 Duration: 1/16 + 1/8 32 [20] 
+  //Note 5: D# 63 [3f] Note 5 Duration: 1/8 16 [10]
+  //Note 6: A# 70 [46] Note 6 Duration: 1/8 16 [10] 
+  //Note 7: A# 70 [46] Note 7 Duration: 1/8 16 [10]
+  //Note 8: G 67 [43] Note 8 Duration: 1/8 16 [10] 
+  //Note 9: A# 70 [46] Note 9 Duration: 1/8 16 [10]
+  //Note 10: A# 70 [46] Note 10 Duration: Dotted 1/8 24 [18] 
+  //Note 11: C 72 [48] Note 11 Duration: 1/16 + 1/4 42 [2A] 
+  Roomba.write("\x8c\x02\x0b\x43\x24\x46\x24\x48\x18\x41\x20\x3f\x10\x46\x10\x46\x10\x43\x10\x46\x10\x46\x18\x48\x2A"); 
+  Roomba.write("\x8d\x02");
+
+    break;
+  
+  }
+}
+
+void testDrive()
+{
+  drive(100, 32768);
+  delay(1000);
+  drive(0,0);
 }
