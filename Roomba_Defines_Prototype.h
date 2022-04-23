@@ -10,7 +10,7 @@
 int motorSpeed = 100;
 
 //pin for button
-int buttonPin = 13;
+int buttonPin = 7;
 
 //device detect pin
 int ddPin=5;

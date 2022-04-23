@@ -1,18 +1,19 @@
 #include "Roomba_Defines_Prototype.h"
 #include <SoftwareSerial.h>
+//#include <SPI.h>
+//#include <SD.h>
 
-#define A 3 //A to segment pin 3
-#define B 2
-#define C 9
-#define D 7
-#define E 6
-#define F 4
-#define G 8
-#define DP 12 // decimal
+#define A A4 //A to segment pin A4
+#define B A5
+#define C 4
+#define D 3
+#define E 2
+#define F A3
+#define G 6
 
-int rxPin=10; //rxPin: the pin on which to receive serial data
+int rxPin=8; //rxPin: the pin on which to receive serial data
 
-int txPin=11; //txPin: the pin on which to transmit serial data
+int txPin=9; //txPin: the pin on which to transmit serial data
 
 //Create an instance of a SoftwareSerial object with the rx pin and tx pin as parameters.
 SoftwareSerial Roomba(rxPin,txPin);
@@ -34,6 +35,9 @@ void setup() {
   Serial.begin(19200);
 
   delay(2000); //delay to let Roomba initialize
+
+  pinMode(rxPin, INPUT);
+  pinMode(txPin, OUTPUT);
   
   pinMode(ddPin, OUTPUT); //configures the devide detect pin into output mode. 
 
