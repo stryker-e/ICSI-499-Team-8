@@ -19,12 +19,15 @@ int txPin=9; //txPin: the pin on which to transmit serial data
 SoftwareSerial Roomba(rxPin,txPin);
 
 int currentMapNumber = 1; //Currently selected map number
-const int maxMaps = 9; //Maximum number of maps
+const int maxMaps = 6; //Maximum number of maps
 int buttonState = 0; //Button state
 int lastButtonState = 1; //Previous button state (used to prevent multiple function calls per button press)
 
 char bumpRight = '0'; //Used to check right bumper sensor
 char bumpLeft = '0'; //Used to check left bumper sensor
+
+int startTime = 0; //used for timing
+int endTime = 0;  //used for timing 
 
 void setup() {
 
@@ -65,7 +68,9 @@ void loop() {
 
       //Change number being displayed by seven segment
       changeMap();
-
+      
+      map();
+      
       //playSong(1);
 
       //have the Roomba drive until the bumper sensor is hit
@@ -80,17 +85,17 @@ void loop() {
     delay(10); // Delay a little bit to avoid bouncing
   }
   
-  printSensorReadingBinary();
+  printSensorReadingBinaryTest();
   // save the current state as the last state, for next time through the loop
   lastButtonState = buttonState;
 
 }
 
 void changeMap(){
-  int currentMap = (currentMapNumber++ % maxMaps) + 1;
+  currentMapNumber = (currentMapNumber++ % maxMaps) + 1;
   turnOff(); //reset seven segment
-  displayDigit(currentMap);
-  Serial.print(currentMap); //Print to serial monitor
+  displayDigit(currentMapNumber);
+  Serial.print(currentMapNumber); //Print to serial monitor
 }
 
 void wakeUp (void)
@@ -124,18 +129,6 @@ void startFull()
   Roomba.write(128);  //Starts the OI (must be sent before any other command)
   Roomba.write(132);  //Puts the OI into Safe Mode (Turns off all LEDs)
   delay(1000);
-}
-
-void drive(int velocity, int radius)
-{
-  clamp(velocity, -500, 500); //define max and min velocity in mm/s
-  clamp(radius, -2000, 2000); //define max and min radius in mm
-  
-  Roomba.write(137); //Drive Op code
-  Roomba.write(velocity >> 8); //Velocity MSB
-  Roomba.write(velocity); //
-  Roomba.write(radius >> 8);
-  Roomba.write(radius);
 }
 
 /*
@@ -180,7 +173,7 @@ void checkBumperSensors()
   // (if not triggered then 0)
   // if the left bumper is triggered bumpLeft is 2 
   // (if not triggered then 0)
-  
+  Serial.print("Checking bumpers: ");
   Serial.print(bumpRight);
   Serial.print(" ");
   Serial.println(bumpLeft);
@@ -224,11 +217,11 @@ void printSensorReading()
   Serial.println(lightBumpRight);
 }
 
-void printSensorReadingBinary()
+void printSensorReadingBinaryTest()
 {
   //Packet 45: LtRightBumper
-  char sensor = 0;
-  char sensorbytes[28]; // variable to hold the returned 10 bytes
+  byte sensor = 0;
+  byte sensorbytes[28]; // variable to hold the returned 10 bytes
   // from iRobot Create
   
   Roomba.write((byte)142); // get sensor packets
@@ -247,7 +240,7 @@ void printSensorReadingBinary()
     sensorbytes[i++] = c;
   }
 
-  switch(currentMapNumber) {
+ switch(currentMapNumber) {
    case 1  :
       sensor = sensorbytes[4] & 0x01;
       break;
@@ -255,16 +248,68 @@ void printSensorReadingBinary()
       sensor = sensorbytes[4] & 0x02;
       break;
    case 3  :
-      sensor = sensorbytes[4] & 0x03;
-      break;
-   case 4  :
       sensor = sensorbytes[4] & 0x04;
       break;
+   case 4  :
+      sensor = sensorbytes[4] & 0x08;
+      break;
    case 5  :
-      sensor = sensorbytes[4] & 0x05;
+      sensor = sensorbytes[4] & 0x16;
       break;
    case 6  :
-      sensor = sensorbytes[4] & 0x06;
+      sensor = sensorbytes[4] & 0x32;
+      break;
+  }
+  
+  Serial.println(sensor > 0);
+}
+
+boolean printSensorReadingBinary(int bit)
+{
+  //Packet 45: LtRightBumper
+  byte sensor = 0;
+  byte sensorbytes[28]; // variable to hold the returned 10 bytes
+  // from iRobot Create
+  
+  Roomba.write((byte)142); // get sensor packets
+  Roomba.write((byte)101); // sensor group packet ID 101, size 
+  // bytes, contains packets: 43 - 58
+  delay(64);
+  // wipe old sensor data
+  char i = 0;
+  while (i < 28) {
+    sensorbytes[i++] = 0;
+  }
+  i = 0;
+  while(Roomba.available()) 
+  {
+    int c = Roomba.read();
+    sensorbytes[i++] = c;
+  }
+  //1 - Light Bumper Left
+  //2 - Light Bumper Front Left
+  //3 - Light Bumper Center Left
+  //4 - Light Bumper Center Right
+  //5 - Light Bumper Front Right
+  //6 - Light Bumper Right
+  switch(bit) {
+   case 1  :
+      sensor = sensorbytes[4] & 0x01;
+      break;
+   case 2  :
+      sensor = sensorbytes[4] & 0x02;
+      break;
+   case 3  :
+      sensor = sensorbytes[4] & 0x04;
+      break;
+   case 4  :
+      sensor = sensorbytes[4] & 0x08;
+      break;
+   case 5  :
+      sensor = sensorbytes[4] & 0x10;
+      break;
+   case 6  :
+      sensor = sensorbytes[4] & 0x20;
       break;
   }
   
@@ -284,6 +329,7 @@ void printSensorReadingBinary()
   // (if not triggered then 0)
   
   Serial.println(sensor > 0);
+  return sensor > 0;
 }
 
 
@@ -385,4 +431,104 @@ void playSong(int songNumber)
       break;
   
   }
+}
+
+void drive(int velocity, int radius)
+{
+  clamp(velocity, -500, 500); //define max and min velocity in mm/s
+  clamp(radius, -2000, 2000); //define max and min radius in mm
+  
+  Roomba.write(137); //Drive Op code
+  Roomba.write(velocity >> 8); //Velocity MSB
+  Roomba.write(velocity); //
+  Roomba.write(radius >> 8);
+  Roomba.write(radius);
+}
+
+void driveStop()
+{
+  drive(0,0);
+}
+
+void turnCW(unsigned short velocity, unsigned short degrees)
+{
+  drive(velocity, -1);
+  clamp(velocity, 0, 500);
+  delay(6600);
+  //delay((1580 + 2.25*velocity)/velocity*degrees);
+  //delay((-0.03159720835 * velocity + 21.215270835) * degrees);
+  drive(0,0);
+}
+
+void driveWheels(int right, int left)
+{
+  clamp(right, -500, 500);
+  clamp(left, -500, 500);
+  
+  Roomba.write(145);
+  Roomba.write(right >> 8);
+  Roomba.write(right);
+  Roomba.write(left >> 8);
+  Roomba.write(left);
+}
+
+void driveLeft(int left)
+{
+  driveWheels(left, 0);
+}
+
+void driveRight(int right)
+{
+  driveWheels(0, right);
+}
+
+void map()
+{
+  //drive straight
+  driveWheels(100, 100);
+  //check for collision
+  while(bumpRight != 1 && bumpLeft != 1){
+      checkBumperSensors();
+      Serial.println("Waiting for bump...");
+  }
+  driveStop();
+  boolean done = false;
+  int loopCount = 0;
+  //while(!done)
+  while(++loopCount < 10)
+  {
+    Serial.println("3 second delay...");
+    delay(3000);
+    drive(20, -1);
+    while(printSensorReadingBinary(1) || printSensorReadingBinary(2) || printSensorReadingBinary(3)){
+      Serial.println("Turning Away from wall...");
+    }
+    delay(1000);
+    driveStop();
+    Serial.println("3 second delay...");
+    delay(3000);
+    driveWheels(100, 100);
+    startTime = millis();
+    endTime = startTime;
+    while((endTime - startTime) <=3000 || (bumpRight != 1 && bumpLeft != 1)) // do this loop for up to 3000mS
+    {
+    checkBumperSensors();
+    Serial.println("Going straight for 3 seconds");
+    endTime = millis();
+    }
+    driveStop();
+    Serial.println("3 second delay...");
+    delay(3000);
+    //drive left?
+    driveWheels(50, 100);
+    //turn left until collision
+    while(bumpRight != 1 && bumpLeft != 1){
+      checkBumperSensors();
+      Serial.println("Turning Left until bump...");
+    }
+    driveStop();
+    changeMap();
+  }
+
+  
 }
