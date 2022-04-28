@@ -1,3 +1,6 @@
+#ifndef ROOMBA_DEFINES_PROTOTYPE_H
+#define ROOMBA_DEFINES_PROTOTYPE_H
+
 #define clamp(value, min, max) (value < min ? min : value > max ? max : value)
 
 #define ON 1
@@ -14,3 +17,5 @@ int buttonPin = 7;
 
 //device detect pin
 int ddPin=5;
+
+#endif
