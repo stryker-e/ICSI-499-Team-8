@@ -417,6 +417,48 @@ boolean printSensorReadingBinary(int bit)
   return sensor > 0;
 }
 
+//https://robotics.stackexchange.com/questions/7229/irobot-create-2-encoder-counts?rq=1
+bool getEncoders(int left_encode, int right_encode) {
+  byte msb = 0;
+  byte lsb = 0;
+  int sensorbytes[4];
+  
+  Roomba.write(byte(142));
+  Roomba.write(byte(2));
+  Roomba.write(byte(43));
+  Roomba.write(byte(44));
+  delay(100);
+  int i = 0;
+  while(Roomba.available()) {
+    sensorbytes[i++] = Roomba.read();
+  }
+  right_encode = (int)(sensorbytes[2] << 8) | (int)(sensorbytes[3] & 0xFF);
+  left_encode = (int)(sensorbytes[0] << 8) | (int)(sensorbytes[1] & 0xFF);
+  Serial.print("Left encoder: ");
+  Serial.println(left_encode);
+  Serial.println("Right encoder: ");
+  Serial.println(right_encode);
+  return true;
+}
+  
+//https://github.com/5ide6urnslab/iRobotCreate2
+bool getPacketData(byte packetID, int buff) {
+  byte msb = 0;
+  byte lsb = 0;
+  
+  Roomba.write(byte(142));
+  Roomba.write(byte(packetID));
+  
+  if(Roomba.available() > 0) {
+    msb = Roomba.read();
+    lsb = Roomba.read();
+    buff = msb << 8 | lsb;
+    Serial.print("Packet data = " );
+    Serial.println(buff);
+    return true;
+  }
+  return false;  
+}
 
 void distanceAngleSensors()
 {
