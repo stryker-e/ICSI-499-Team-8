@@ -1,5 +1,6 @@
 #include "Roomba_Defines_Prototype.h"
 #include <SoftwareSerial.h>
+#include <cppQueue.h>
 //#include <SPI.h>
 //#include <SD.h>
 
@@ -11,23 +12,107 @@
 #define F A3
 #define G 6
 
-int rxPin=8; //rxPin: the pin on which to receive serial data
+byte rxPin=8; //rxPin: the pin on which to receive serial data
 
-int txPin=9; //txPin: the pin on which to transmit serial data
+byte txPin=9; //txPin: the pin on which to transmit serial data
 
 //Create an instance of a SoftwareSerial object with the rx pin and tx pin as parameters.
 SoftwareSerial Roomba(rxPin,txPin);
 
-int currentMapNumber = 1; //Currently selected map number
-const int maxMaps = 6; //Maximum number of maps
+byte currentMapNumber = 1; //Currently selected map number
+const byte maxMaps = 6; //Maximum number of maps
 int buttonState = 0; //Button state
 int lastButtonState = 1; //Previous button state (used to prevent multiple function calls per button press)
 
-char bumpRight = '0'; //Used to check right bumper sensor
-char bumpLeft = '0'; //Used to check left bumper sensor
+byte bumpRight = '0'; //Used to check right bumper sensor
+byte bumpLeft = '0'; //Used to check left bumper sensor
 
 int startTime = 0; //used for timing
 int endTime = 0;  //used for timing 
+
+int distance = 0;
+int angle = 0;
+int update_delay = 16;
+//uint16_t timer_cnt = 0;
+//uint8_t timer_on = 0;
+
+int cell_size=300;//the size of the robot
+//int scan_one_cell=39;//lower number makes it see further
+
+//map locations
+byte x=0;
+byte y=0;
+
+//temp variables
+byte counter=0;
+
+//when searching for a node with a lower value
+byte minimum_node=250;
+byte min_node_location=0;
+byte reset_min=250;//anything above this number is a special item, ie a wall or robot
+
+struct Cell {   // Declare Cell struct
+  int x;
+  int y;
+  bool visited;
+};
+
+//Variable for orientation of robot, default value is north
+int orientation = NORTH;
+
+//Variable to contain the directions to move to
+int direction[MAP_AREA];
+//Next best neighbor
+Cell next;
+//Neighbors of a cell
+Cell northNeigh;
+Cell southNeigh;
+Cell eastNeigh;
+Cell westNeigh;
+
+//Values of neighbors
+int northVal;
+int southVal;
+int eastVal;
+int westVal;
+
+Cell nextCell;
+
+cppQueue q(sizeof(Cell), MAP_AREA, FIFO);	
+
+// //X is vertical, Y is horizontal
+// int mapMatrix[X_SIZE][Y_SIZE]=  
+//         {{1,1,1,1,1,1},
+//          {1,1,1,1,1,1},
+//          {1,0,0,0,1,1},
+//          {1,0,0,0,1,1},
+//          {1,0,0,0,1,1},
+//          {1,1,1,1,1,1}};
+// int start_x = 1;
+// int start_y = 4;
+// int goal_x = 3;
+// int goal_y = 2;
+
+//int mapMatrix[X_SIZE][Y_SIZE]=  
+//        {{0,0,0,0,0,0},
+//         {0,0,0,0,0,0},
+//         {0,0,0,0,0,0},
+//         {0,0,0,0,0,0},
+//         {0,0,0,0,0,0},
+//         {0,0,0,0,0,0}};
+//int start_x = 5;
+//int start_y = 5;
+//int goal_x = 0;
+//int goal_y = 0;
+
+int mapMatrix[X_SIZE][Y_SIZE]=  
+        {{-1,0,0},
+         {0,0,0},
+         {0,0,0}};
+int start_x = 0;
+int start_y = 0;
+int goal_x = 0;
+int goal_y = 0;
 
 void setup() {
 
@@ -69,12 +154,10 @@ void loop() {
       //Change number being displayed by seven segment
       changeMap();
       
-      map();
-      
-      //playSong(1);
-
-      //have the Roomba drive until the bumper sensor is hit
-      //driveUntilBump();
+      //map();
+      generateCells();
+      delay(2000);
+      computePath(X_SIZE,Y_SIZE,start_x,start_y);
       
     } 
     else {
@@ -85,7 +168,10 @@ void loop() {
     delay(10); // Delay a little bit to avoid bouncing
   }
   
-  printSensorReadingBinaryTest();
+  //printSensorReadingBinaryTest();
+  //checkBumperSensors();
+
+  
   // save the current state as the last state, for next time through the loop
   lastButtonState = buttonState;
 
@@ -173,10 +259,10 @@ void checkBumperSensors()
   // (if not triggered then 0)
   // if the left bumper is triggered bumpLeft is 2 
   // (if not triggered then 0)
-  Serial.print("Checking bumpers: ");
-  Serial.print(bumpRight);
-  Serial.print(" ");
-  Serial.println(bumpLeft);
+  //Serial.print("Checking bumpers: ");
+  //Serial.print(bumpRight);
+  //Serial.print(" ");
+  //Serial.println(bumpLeft);
 }
 
 void printSensorReading()
@@ -214,7 +300,7 @@ void printSensorReading()
   // if the left bumper is triggered bumpLeft is 2 
   // (if not triggered then 0)
   
-  Serial.println(lightBumpRight);
+  //Serial.println(lightBumpRight);
 }
 
 void printSensorReadingBinaryTest()
@@ -266,9 +352,8 @@ void printSensorReadingBinaryTest()
 
 boolean printSensorReadingBinary(int bit)
 {
-  //Packet 45: LtRightBumper
   byte sensor = 0;
-  byte sensorbytes[28]; // variable to hold the returned 10 bytes
+  byte sensorbytes[28]; // variable to hold the returned 28 bytes
   // from iRobot Create
   
   Roomba.write((byte)142); // get sensor packets
@@ -328,15 +413,49 @@ boolean printSensorReadingBinary(int bit)
   // if the left bumper is triggered bumpLeft is 2 
   // (if not triggered then 0)
   
-  Serial.println(sensor > 0);
+  //Serial.println(sensor > 0);
   return sensor > 0;
+}
+
+
+void distanceAngleSensors()
+{
+  //Packet 45: LtRightBumper
+  byte sensor = 0;
+  byte sensorbytes[6]; // variable to hold the returned 10 bytes
+  // from iRobot Create
+  
+  Roomba.write((byte)142); // get sensor packets
+  Roomba.write((byte)2); // sensor group packet ID 101, size 
+  // bytes, contains packets: 43 - 58
+  delay(64);
+  // wipe old sensor data
+  char i = 0;
+  while (i < 6) {
+    sensorbytes[i++] = 0;
+  }
+  i = 0;
+  while(Roomba.available()) 
+  {
+    int c = Roomba.read();
+    sensorbytes[i++] = c;
+  }
+
+  distance += (int)((sensorbytes[2] << 8) | sensorbytes[3]);
+  angle += (int)((sensorbytes[4] << 8) | sensorbytes[5]);
+  
+//  Serial.print("distance ");
+//  Serial.println(distance);
+//
+//  Serial.print("angle ");
+//  Serial.println(angle);
 }
 
 
 void driveUntilBump()
 {
   drive(100, 32768);
-  while(bumpRight != 1 && bumpLeft != 1){
+  while(bumpRight != 2 && bumpLeft != 1){
     checkBumperSensors();
   }
   drive(0, 0);
@@ -445,19 +564,45 @@ void drive(int velocity, int radius)
   Roomba.write(radius);
 }
 
+void driveStraight(int distance_tmp, int velocity)
+{
+	drive(velocity, RadStraight);
+  Serial.print("Going straight for");
+  Serial.println(distance_tmp);
+	while(distance<distance_tmp){//flaw is that if it goes above in the middle of function, it will drift
+		distanceAngleSensors();
+    checkBumperSensors();
+    if(bumpRight == 1 || bumpLeft == 2){
+      checkBumperSensors();
+      Serial.println("Felt a buwmp OwO...");
+      driveStraight(distance, -velocity);
+    }
+  }
+  //startTime = millis();
+  //endTime = startTime;
+  // while((endTime - startTime) <=1000 || (bumpRight != 1 && bumpLeft != 2)) // do this loop for up to 3000mS
+  // {
+  //   checkBumperSensors();
+  //   Serial.println("Going straight for 1 seconds");
+  //   endTime = millis();
+  // }
+
+  Serial.print("distance ");
+  Serial.println(distance);
+
+  Serial.print("angle ");
+  Serial.println(angle);
+
+	driveStop();
+	distanceAngleSensors();
+
+	distance=distance-distance_tmp;//resets angle to 0; accounts for an over/undershoot
+}
+
 void driveStop()
 {
   drive(0,0);
-}
-
-void turnCW(unsigned short velocity, unsigned short degrees)
-{
-  drive(velocity, -1);
-  clamp(velocity, 0, 500);
-  delay(6600);
-  //delay((1580 + 2.25*velocity)/velocity*degrees);
-  //delay((-0.03159720835 * velocity + 21.215270835) * degrees);
-  drive(0,0);
+  distanceAngleSensors();
 }
 
 void driveWheels(int right, int left)
@@ -482,12 +627,55 @@ void driveRight(int right)
   driveWheels(0, right);
 }
 
-void map()
+void move1Square()
+{
+  driveStraight(cell_size,100);
+}
+
+void moveBack1Square()
+{
+  driveStraight(cell_size,-100);
+}
+
+void turn90CW()
+{
+ drive(100, RadCW);
+ Serial.println("Turning clockwise 90 degrees");
+ while((-angle)<90){
+		distanceAngleSensors();//flaw is that if it goes above in the middle of function, it will drift
+   //Serial.println(angle);
+ }
+ Serial.println(angle);
+	driveStop();
+	distanceAngleSensors();
+
+	angle=angle-90;//resets angle to 0; accounts for an over/undershoot
+	angle=0;
+}
+
+void turn90CCW()
+{
+  drive(100, RadCCW);
+  Serial.println("Turning counter-clockwise 90 degrees");
+  while((angle)<90){
+		distanceAngleSensors();//flaw is that if it goes above in the middle of function, it will drift
+   //Serial.println(angle);
+ }
+  Serial.println(angle);
+	driveStop();
+	distanceAngleSensors();
+
+	angle=angle-90;//resets angle to 0; accounts for an over/undershoot
+	angle=0;
+}
+
+
+void wallFollow()
 {
   //drive straight
   driveWheels(100, 100);
   //check for collision
-  while(bumpRight != 1 && bumpLeft != 1){
+  while(bumpRight != 1 && bumpLeft != 2){
       checkBumperSensors();
       Serial.println("Waiting for bump...");
   }
@@ -500,7 +688,7 @@ void map()
     Serial.println("3 second delay...");
     delay(3000);
     drive(20, -1);
-    while(printSensorReadingBinary(1) || printSensorReadingBinary(2) || printSensorReadingBinary(3)){
+    while(printSensorReadingBinary(1) || printSensorReadingBinary(2) || printSensorReadingBinary(3) || printSensorReadingBinary(4) || printSensorReadingBinary(5)){
       Serial.println("Turning Away from wall...");
     }
     delay(1000);
@@ -510,19 +698,19 @@ void map()
     driveWheels(100, 100);
     startTime = millis();
     endTime = startTime;
-    while((endTime - startTime) <=3000 || (bumpRight != 1 && bumpLeft != 1)) // do this loop for up to 3000mS
+    while((endTime - startTime) <=1000 || (bumpRight != 1 && bumpLeft != 2)) // do this loop for up to 3000mS
     {
     checkBumperSensors();
-    Serial.println("Going straight for 3 seconds");
+    Serial.println("Going straight for 1 seconds");
     endTime = millis();
     }
     driveStop();
     Serial.println("3 second delay...");
     delay(3000);
     //drive left?
-    driveWheels(50, 100);
+    driveWheels(-50, 100);
     //turn left until collision
-    while(bumpRight != 1 && bumpLeft != 1){
+    while(bumpRight != 1 && bumpLeft != 2){
       checkBumperSensors();
       Serial.println("Turning Left until bump...");
     }
@@ -530,5 +718,410 @@ void map()
     changeMap();
   }
 
+  
+}
+
+void printMaptoSerial(){
+  for(int i=0;i<Y_SIZE;i++)
+	{
+	  for(int j=0;j<X_SIZE;j++)
+	  {
+      Serial.print(mapMatrix[i][j]);
+	    Serial.print(" ");
+	  }
+    Serial.println();
+	}
+}
+
+/************************ COMPUTE NEIGHBOR *************************/
+void computeNeighbor(Cell &currCell)
+{
+  northNeigh.x = currCell.x;
+  northNeigh.y = currCell.y-1;
+  //If coordinates of north neighbor are valid, northVal is the value of north neighbor, else it's invalid
+  checkCoordinate(northNeigh.x,northNeigh.y)==true ? northVal = mapMatrix[northNeigh.y][northNeigh.x]:northVal = -1 ;
+  //Serial.println("north neighbor is: %d,%d |Value is: %d",northNeigh.x,northNeigh.y,northVal);
+
+  southNeigh.x = currCell.x;
+  southNeigh.y = currCell.y+1;
+  checkCoordinate(southNeigh.x,southNeigh.y)==true ? southVal = mapMatrix[southNeigh.y][southNeigh.x]:southVal = -1;
+  //Serial.println("south neighbor is: %d,%d |Value is: %d",southNeigh.x,southNeigh.y,southVal);
+
+  eastNeigh.x = currCell.x+1;
+  eastNeigh.y = currCell.y;
+  checkCoordinate(eastNeigh.x,eastNeigh.y)==true ? eastVal = mapMatrix[eastNeigh.y][eastNeigh.x]:eastVal = -1;
+  //Serial.println("east neighbor is: %d,%d |Value is: %d",eastNeigh.x,eastNeigh.y,eastVal);
+
+  westNeigh.x = currCell.x-1;
+  westNeigh.y = currCell.y;
+  checkCoordinate(westNeigh.x,westNeigh.y)==true ? westVal = mapMatrix[westNeigh.y][westNeigh.x]:westVal = -1;
+  //Serial.println("west neighbor is: %d,%d |Value is: %d",westNeigh.x,westNeigh.y,westVal);
+ }
+ /************************ END COMPUTE NEIGHBOR ***********************************/
+
+void setGoal(){
+  counter = 0;
+  for(int i=0;i<Y_SIZE;i++)
+  {
+    for(int j=0;j<X_SIZE;j++)
+    {
+      if(counter < mapMatrix[i][j])
+      {
+        counter = mapMatrix[i][j];
+        goal_x = j;
+        goal_y = i;
+      }
+    }
+  }
+  
+  Serial.print("The goal is set to ");
+  Serial.print(goal_x);
+  Serial.print(" ");
+  Serial.println(goal_y);
+}
+
+
+/******************** COMPUTE PATH ************************************/
+void computePath(int numCols, int numRows, int startX, int startY)
+{
+  //Initialize start positions
+  Cell currCell;
+  currCell.x = startX;
+  currCell.y = startY;
+
+  int smallestCell;
+
+
+  //compare all neighbors to find the smallest which is not OBST
+
+  int i = 0;
+  while(smallestCell != mapMatrix[goal_y][goal_x])
+  {
+    Serial.print(i);
+    Serial.print(" ");
+    Serial.println(sizeof(direction));
+    if(i > sizeof(direction))
+     {
+       //Create new array with bigger size
+       int newDirections[sizeof(direction)*2];
+       for(int i=0;i<sizeof(direction);i++)
+       {
+         newDirections[i] = direction[i];
+       }
+       memcpy(direction, newDirections, sizeof(direction));
+     }
+    computeNeighbor(currCell);//Compute and set all possible neighbors
+    //Check to make sure the neighbors are valid
+    //Assign arbitrary smallest cell for comparison
+    smallestCell = mapMatrix[currCell.y][currCell.x];
+    Serial.print("The current smallest cell is: ");
+    Serial.print(currCell.x);
+    Serial.print(" ");
+    Serial.println(currCell.y);
+    Serial.print("smallestCell: value");
+    Serial.println(smallestCell);
+
+    if(northVal < smallestCell && (northVal != 1 && northVal != -1))
+     {
+       smallestCell = northVal;
+       //found best cell...set current cell to that cexl
+       currCell.x = northNeigh.x;
+       currCell.y = northNeigh.y;
+       direction[i] = 1;
+     }
+     if(southVal < smallestCell && (southVal != 1 && southVal != -1))
+     {
+       smallestCell = southVal;
+       //found best cell...set current cell to that cell
+       currCell.x = southNeigh.x;
+       currCell.y = southNeigh.y;
+       direction[i] = 2;
+     }
+     if(eastVal < smallestCell && (eastVal != 1&& eastVal != -1))
+     {
+       smallestCell = eastVal;
+       //found best cell...set current cell to that cell
+       currCell.x = eastNeigh.x;
+       currCell.y = eastNeigh.y;
+       direction[i] = 3;
+     }
+     if(westVal < smallestCell && (westVal != 1 && westVal != -1))
+     {
+       smallestCell = westVal;
+       //found best cell...set current cell to thay cell
+       currCell.x = westNeigh.x;
+       currCell.y = westNeigh.y;
+       direction[i] = 4;
+     }
+     //Print
+     //Serial.println("Moving to cell: %d,%d | Value: %d",currCell.x,currCell.y, mapMatrix[currCell.y][currCell.x]);
+     Serial.print("Moving to cell: ");
+      Serial.print(currCell.x);
+      Serial.print(" ");
+      Serial.println(currCell.y);
+      Serial.print("The current smallest cell is: ");
+      Serial.print(currCell.x);
+      Serial.print(" ");
+      Serial.println(currCell.y);
+     followPlan(i);
+     i++;
+  }
+  for(int j=0;j<sizeof(direction);j++)
+    {
+      Serial.print(direction[j]);
+      Serial.print(" ");
+    }
+  
+}
+/******************************** END COMPUTE PATH *********************************/
+
+/******************** CHECK COORDINATES *************************************/
+bool checkCoordinate(int x, int y)
+{
+  bool returnValue;
+  int dummy = 0;int dummy2 = 0;
+
+  x==-1 ? returnValue = false:dummy += 1;//If x is invalid, return value is false and increment dummy by 1
+  y==-1 ? returnValue = false:dummy += 2;//If y is invalid return value is false and increment dummy by `
+
+  x>(X_SIZE-1) ? returnValue = false:dummy2 += 3;//If x exceeds boundary return value is false, increment dummy2 by 3
+  y>(Y_SIZE-1) ? returnValue = false:dummy2 += 4;//If y exceeds boundary return value is false, increment dummy2 by 4
+
+  //If dummy is 3 and dumm2 is 7, then both tests have passed, coordinates are valid
+  if(dummy==3 && dummy2==7)
+  {
+//    Serial.print(x);
+//    Serial.print(" ");
+//    Serial.println(y);
+//    Serial.println("True");
+    return true;
+  }
+  else //Otherwise tests failed, return false
+  {
+//    Serial.print(x);
+//    Serial.print(" ");
+//    Serial.println(y);
+//    Serial.println("False");
+    return returnValue;
+  }
+}
+/*********************** END CHECK COORDINATES ******************************/
+
+
+
+/*********************** FOLLOW PLAN *************************************************/
+void followPlan(int i)
+{
+    //********************   Direction to move to: NORTH    ***************//
+    //Orientation: NORTH
+    if(direction[i] == 1 && orientation == NORTH)
+    {
+      move1Square();
+      Serial.println("Orientation is still NORTH");
+    }
+    //Orientation: SOUTH
+    else if(direction[i] == 1 && orientation == SOUTH)
+    {
+      turn90CW();
+      turn90CW();
+      move1Square();
+      orientation = NORTH;//Reset Orientation
+      Serial.println("Orientation is NORTH");
+    }
+    //Orientation: EAST
+    else if(direction[i] == 1 && orientation == EAST)
+    {
+      turn90CCW();
+      move1Square();
+      orientation = NORTH;//Reset Orientation
+      Serial.println("Orientation is NORTH");
+    }
+    //Orientation: WEST
+    else if(direction[i] == 1 && orientation == WEST)
+    {
+      turn90CW();
+      move1Square();
+      orientation = NORTH;//Reset orientation
+      Serial.println("Orientation is NORTH");
+    }
+
+    //********************  Direction to move to: SOUTH    ***************//
+    //Orientation: SOUTH
+    if(direction[i] == 2 && orientation == SOUTH)
+    {
+      move1Square();
+      Serial.println("Orientation is still SOUTH");
+    }
+    //Orientation: NORTH
+    else if(direction[i] == 2 && orientation == NORTH)
+    {
+      turn90CW();
+      turn90CW();
+      move1Square();
+      orientation = SOUTH;//Reset Orientation
+      Serial.println("Orientation is SOUTH");
+    }
+    //Orientation: EAST
+    else if(direction[i] == 2 && orientation == EAST)
+    {
+      turn90CW();
+      move1Square();
+      orientation = SOUTH;//Reset orientation
+      Serial.println("Orientation is SOUTH");
+    }
+    //Orientation: WEST
+    else if(direction[i] == 2 && orientation == WEST)
+    {
+      turn90CCW();
+      move1Square();
+      orientation = SOUTH;//Reset orientation
+      Serial.println("Orientation is SOUTH");
+    }
+
+    //******************** Direction to move to: EAST     ***************//
+    //Orientation: EAST
+    if(direction[i] == 3 && orientation == EAST)
+    {
+      move1Square();
+      Serial.println("Orientation is still EAST");
+    }
+    //Orientation: NORTH
+    else if(direction[i] == 3 && orientation == NORTH)
+    {
+      turn90CW();
+      move1Square();
+      orientation = EAST;//Reset Orientation
+      Serial.println("Orientation is EAST");
+    }
+    //ORIENTATION: SOUTH
+    else if(direction[i] == 3 && orientation == SOUTH)
+    {
+      turn90CCW();
+      move1Square();
+      orientation = EAST;//Reset orientation
+      Serial.println("Orientation is EAST");
+    }
+    //ORIENTATION: WEST
+    else if(direction[i] == 3 && orientation == WEST)
+    {
+      turn90CW();
+      turn90CW();
+      move1Square();
+      orientation = EAST;//Reset Orientation
+      Serial.println("Orientation is EAST");
+    }
+
+    //********************  Direction to move to: WEST     ***************//
+    //Orientation: WEST
+    if(direction[i] == 4 && orientation == WEST)
+    {
+      move1Square();
+      Serial.println("Orientation is still WEST");
+    }
+    //Orientation: NORTH
+    else if(direction[i] == 4 && orientation == NORTH)
+    {
+      turn90CCW();
+      move1Square();
+      orientation = WEST;//Reset Orientation
+      Serial.println("Orientation is WEST");
+    }
+    //Orientation: WEST
+    else if(direction[i] == 4 && orientation == SOUTH)
+    {
+      turn90CW();
+      move1Square();
+      orientation = WEST;//Reset Orientation
+      Serial.println("Orientation is WEST");
+    }
+    //Orientation: EAST
+    else if(direction[i] == 4 && orientation == EAST)
+    {
+      turn90CCW();
+      turn90CCW();
+      move1Square();
+      orientation = WEST;//Reset Orientation
+      Serial.println("Orientation is WEST");
+    }
+}
+
+void generateCells()
+{
+  Cell cell = {start_x, start_y, false};
+  q.push(&cell);
+
+  while (!q.isEmpty())
+  {
+    q.peek(&nextCell);
+
+    
+
+    Cell temp;
+    temp.x = nextCell.x;
+    temp.y = nextCell.y;
+
+    computeNeighbor(temp);
+    //display();
+    //End
+    q.peek(&temp);
+    int y = temp.y;
+    int x = temp.x;
+
+   if(northVal == 0)
+    {
+      mapMatrix[northNeigh.y][northNeigh.x] = mapMatrix[y][x]+1;
+      temp.x = northNeigh.x;
+      temp.y = northNeigh.y; 
+//      Serial.print(temp.x);
+//      Serial.print(" ");
+//      Serial.print(temp.y);
+//      Serial.print(" ");
+//      Serial.println(counter++);
+      q.push(&temp);
+      //display();
+    }
+    if(southVal == 0)
+    {
+      mapMatrix[southNeigh.y][southNeigh.x] = mapMatrix[y][x]+1;
+      temp.x = southNeigh.x;
+      temp.y = southNeigh.y;
+//      Serial.print(temp.x);
+//      Serial.print(" ");
+//      Serial.print(temp.y);
+//      Serial.print(" ");
+//      Serial.println(counter++);
+      q.push(&temp);
+      //display();
+    }
+    if(eastVal == 0)
+    {
+      mapMatrix[eastNeigh.y][eastNeigh.x] = mapMatrix[y][x]+1;
+      temp.x = eastNeigh.x;
+      temp.y = eastNeigh.y;
+//      Serial.print(temp.x);
+//      Serial.print(" ");
+//      Serial.print(temp.y);
+//      Serial.print(" ");
+//      Serial.println(counter++);
+      q.push(&temp);
+      //display();
+    }
+    if(westVal == 0)
+    {
+      mapMatrix[westNeigh.y][westNeigh.x] = mapMatrix[y][x]+1;
+      temp.x = westNeigh.x;
+      temp.y = westNeigh.y;
+//      Serial.print(temp.x);
+//      Serial.print(" ");
+//      Serial.print(temp.y);
+//      Serial.print(" ");
+//      Serial.println(counter++);
+      q.push(&temp);
+      //display();
+    }
+    q.drop();
+  }
+  setGoal();
+  printMaptoSerial();
   
 }
