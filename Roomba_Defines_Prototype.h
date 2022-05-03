@@ -1,5 +1,3 @@
-#define ROOMBA_DEFINES_PROTOTYPE_H
-
 #define clamp(value, min, max) (value < min ? min : value > max ? max : value)
 
 #define ON 1
@@ -22,7 +20,6 @@ int buttonPin = 7;
 //device detect pin
 int ddPin=5;
 
-<<<<<<< HEAD
  /************************ MAP ***********************************/
 
 //Orientation constants
@@ -38,12 +35,11 @@ int ddPin=5;
 //#define WALL 1
 //#define GOAL 2
 
-#define X_SIZE 3
-#define Y_SIZE 3
-#define MAP_AREA 9 
+#define X_SIZE 6
+#define Y_SIZE 6
+#define MAP_AREA X_SIZE * Y_SIZE
 #define FREE 0
-#define WALL 1
-#define GOAL 2
-=======
-#endif
->>>>>>> 257c0d69316973e6d2312318db0b7d7deb1c8966
+#define WALL -2
+#define START -1
+
+#define DEFAULT_SPEED 100
