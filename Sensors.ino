@@ -210,21 +210,6 @@ boolean printSensorReadingBinary(int bit)
     break;
   }
 
-  // Get byte 4
-
-  // if right bumper is triggered sensorbytes[0] is: 00000001
-  // bitwise AND with 0x01, i.e. 00000001 equals 1
-  // see: http://arduino.cc/en/Reference/BitwiseAnd
-  // bumpLeft = sensorbytes[5] & 0x02;
-  // if left bumper is triggered sensorbytes[0] is: 00000010
-  // bitwise AND with 0x02, i.e. 00000010 equals 2
-
-  // So if the right bumper is triggered bumpRight is 1
-  // (if not triggered then 0)
-  // if the left bumper is triggered bumpLeft is 2
-  // (if not triggered then 0)
-
-  // Serial.println(sensor > 0);
   return sensor > 0;
 }
 
@@ -253,9 +238,9 @@ void distanceAngleSensors()
   distance += (int)((sensorbytes[2] << 8) | sensorbytes[3]);
   angle += (int)((sensorbytes[4] << 8) | sensorbytes[5]);
 
-    Serial.print("distance ");
-    Serial.println(distance);
-  
-    Serial.print("angle ");
-    Serial.println(angle);
+//    Serial.print("distance ");
+//    Serial.println(distance);
+//  
+//    Serial.print("angle ");
+//    Serial.println(angle);
 }

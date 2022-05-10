@@ -53,6 +53,20 @@ void computeNeighbor(Cell &currCell)
     }
 }
 
+void setStart(){
+  for (int i = 0; i < Y_SIZE; i++)
+  {
+    for (int j = 0; j < X_SIZE; j++)
+    {
+      if (mapMatrix[i][j] == -1)
+      {
+        start_x = j;
+        start_y = i;
+      }
+    }
+  }
+}
+
 void setGoal()
 {
   int counter = 0;
@@ -75,6 +89,24 @@ void setGoal()
   Serial.println(goal_y);
 }
 
+//reseting for when Roomba reaches goal without covering everything
+void resetMap()
+{
+  for (int i = 0; i < Y_SIZE; i++)
+  {
+    for (int j = 0; j < X_SIZE; j++)
+    {
+      if (mapMatrix[i][j] > 0)
+      {
+        mapMatrix[i][j] = 0;
+      }
+    }
+  }
+
+  Serial.print("Map reset");
+  printMaptoSerial();
+}
+
 /******************** COMPUTE PATH ************************************/
 void computePath(int numCols, int numRows, int startX, int startY)
 {
@@ -93,9 +125,11 @@ void computePath(int numCols, int numRows, int startX, int startY)
   while (smallestCell != mapMatrix[goal_y][goal_x])
   {
     pathFound = false;
-    Serial.print(i);
-    Serial.print(" ");
-    Serial.println(sizeof(direction));
+    if(WavefrontTesting){
+      Serial.print(i);
+      Serial.print(" ");
+      Serial.println(sizeof(direction));
+    }
     if (i > sizeof(direction))
     {
       // Create new array with bigger size
@@ -115,43 +149,51 @@ void computePath(int numCols, int numRows, int startX, int startY)
         Serial.println(smallestCell);
     }
 
-    while (!pathFound)
+    while (!pathFound || smallestCell > mapMatrix[goal_y][goal_x])
     {
 
-      if (northVal < smallestCell && (northVal != WALL && northVal != -1) && !boolMap[currCell.x][currCell.y - 1])
+      if (northVal < smallestCell && (northVal != WALL && northVal != -1) && !boolMap[currCell.y - 1][currCell.x])
       {
         smallestCell = northVal;
-        Serial.println(northVal);
+        if(WavefrontTesting){
+          Serial.println(northVal);
+        }
         // found best cell...set current cell to that cexl
         currCell.x = northNeigh.x;
         currCell.y = northNeigh.y;
         direction[i] = 1;
         pathFound = true;
       }
-      if (southVal < smallestCell && (southVal != WALL && southVal != -1) && !boolMap[currCell.x][currCell.y + 1])
+      if (southVal < smallestCell && (southVal != WALL && southVal != -1) && !boolMap[currCell.y + 1][currCell.x])
         {
           smallestCell = southVal;
-          Serial.println(southVal);
+          if(WavefrontTesting){
+            Serial.println(southVal);
+          }
           // found best cell...set current cell to that cell
           currCell.x = southNeigh.x;
           currCell.y = southNeigh.y;
           direction[i] = 2;
           pathFound = true;
         }
-      if (eastVal < smallestCell && (eastVal != WALL && eastVal != -1) && !boolMap[currCell.x + 1][currCell.y])
+      if (eastVal < smallestCell && (eastVal != WALL && eastVal != -1) && !boolMap[currCell.y][currCell.x + 1])
         {
           smallestCell = eastVal;
-          Serial.println(eastVal);
+          if(WavefrontTesting){
+            Serial.println(eastVal);
+          }
           // found best cell...set current cell to that cell
           currCell.x = eastNeigh.x;
           currCell.y = eastNeigh.y;
           direction[i] = 3;
           pathFound = true;
         }
-      if (westVal < smallestCell && (westVal != WALL && westVal != -1) && !boolMap[currCell.x - 1][currCell.y])
+      if (westVal < smallestCell && (westVal != WALL && westVal != -1) && !boolMap[currCell.y][currCell.x - 1])
           {
             smallestCell = westVal;
-            Serial.println(westVal);
+            if(WavefrontTesting){
+              Serial.println(westVal);
+            }
             // found best cell...set current cell to thay cell
             currCell.x = westNeigh.x;
             currCell.y = westNeigh.y;
@@ -160,11 +202,14 @@ void computePath(int numCols, int numRows, int startX, int startY)
           }
        if (!pathFound){
          smallestCell++;
-         Serial.println(smallestCell);
+         if(WavefrontTesting){
+          Serial.print(smallestCell);
+          Serial.print(" ");
+          Serial.println(mapMatrix[goal_y][goal_x]);
+         }
        }
     }
     // Print
-    // Serial.println("Moving to cell: %d,%d | Value: %d",currCell.x,currCell.y, mapMatrix[currCell.y][currCell.x]);
     if(WavefrontTesting){
         Serial.print("Moving to cell: ");
         Serial.print(currCell.x);
@@ -176,11 +221,10 @@ void computePath(int numCols, int numRows, int startX, int startY)
         Serial.println(currCell.y);
     }
     // mark current cell as visited in boolean matrix map
-    boolMap[currCell.x][currCell.y] = 1;
+    boolMap[currCell.y][currCell.x] = 1;
     followPlan(i);
     i++;
   }
-  verifyCoverage();
   if(WavefrontTesting){
     for (int j = 0; j < sizeof(direction); j++)
     {
@@ -241,6 +285,7 @@ void followPlan(int i)
   {
     turn90CW();
     turn90CW();
+    //turnCW(DEFAULT_SPEED, 180);
     move1Square();
     orientation = NORTH; // Reset Orientation
     if(WavefrontTesting){
@@ -250,7 +295,8 @@ void followPlan(int i)
   // Orientation: EAST
   else if (direction[i] == 1 && orientation == EAST)
   {
-    turn90CCW();
+    //turn90CCW();
+    turnCCW(DEFAULT_SPEED, 90);
     move1Square();
     orientation = NORTH; // Reset Orientation
     if(WavefrontTesting){
@@ -261,6 +307,7 @@ void followPlan(int i)
   else if (direction[i] == 1 && orientation == WEST)
   {
     turn90CW();
+    //turnCW(DEFAULT_SPEED, 90);
     move1Square();
     orientation = NORTH; // Reset orientation
     if(WavefrontTesting){
@@ -282,6 +329,7 @@ void followPlan(int i)
   {
     turn90CW();
     turn90CW();
+    //turnCW(DEFAULT_SPEED, 180);
     move1Square();
     orientation = SOUTH; // Reset Orientation
     if(WavefrontTesting){
@@ -292,6 +340,7 @@ void followPlan(int i)
   else if (direction[i] == 2 && orientation == EAST)
   {
     turn90CW();
+    //turnCW(DEFAULT_SPEED, 90);
     move1Square();
     orientation = SOUTH; // Reset orientation
     if(WavefrontTesting){
@@ -302,6 +351,7 @@ void followPlan(int i)
   else if (direction[i] == 2 && orientation == WEST)
   {
     turn90CCW();
+    //turnCCW(DEFAULT_SPEED, 90);
     move1Square();
     orientation = SOUTH; // Reset orientation
     if(WavefrontTesting){
@@ -322,6 +372,7 @@ void followPlan(int i)
   else if (direction[i] == 3 && orientation == NORTH)
   {
     turn90CW();
+    //turnCW(DEFAULT_SPEED, 90);
     move1Square();
     orientation = EAST; // Reset Orientation
     if(WavefrontTesting){
@@ -332,6 +383,7 @@ void followPlan(int i)
   else if (direction[i] == 3 && orientation == SOUTH)
   {
     turn90CCW();
+    //turnCCW(DEFAULT_SPEED, 90);
     move1Square();
     orientation = EAST; // Reset orientation
     if(WavefrontTesting){
@@ -343,6 +395,7 @@ void followPlan(int i)
   {
     turn90CW();
     turn90CW();
+    turnCW(DEFAULT_SPEED, 180);
     move1Square();
     orientation = EAST; // Reset Orientation
     if(WavefrontTesting){
@@ -363,6 +416,7 @@ void followPlan(int i)
   else if (direction[i] == 4 && orientation == NORTH)
   {
     turn90CCW();
+    //turnCCW(DEFAULT_SPEED, 90);
     move1Square();
     orientation = WEST; // Reset Orientation
     if(WavefrontTesting){
@@ -373,6 +427,7 @@ void followPlan(int i)
   else if (direction[i] == 4 && orientation == SOUTH)
   {
     turn90CW();
+    //turnCW(DEFAULT_SPEED, 90);
     move1Square();
     orientation = WEST; // Reset Orientation
     if(WavefrontTesting){
@@ -384,6 +439,7 @@ void followPlan(int i)
   {
     turn90CCW();
     turn90CCW();
+    //turnCCW(DEFAULT_SPEED, 180);
     move1Square();
     orientation = WEST; // Reset Orientation
     if(WavefrontTesting){
@@ -414,19 +470,29 @@ void verifyCoverage(){
   }
    if(smallestValue != mapMatrix[goal_y][goal_x])
     {
-      prevGoal.x = goal_x;
-      prevGoal.y = goal_y;
+      start_x = goal_x;
+      start_y = goal_y;
+
+      mapMatrix[start_y][start_x] = -1;
+      
       goal_x = temp.x;
       goal_y = temp.y;
     }
-    computePath(X_SIZE, Y_SIZE, prevGoal.x, prevGoal.y);
+    Serial.print(start_x);
+    Serial.print(" ");
+    Serial.println(start_y);
+    Serial.println("Computing path for uncovered area");
+    resetMap();
+    generateCells();
+    computePath(X_SIZE, Y_SIZE, start_x, start_y);
 }
 
 void generateCells()
 {
+  setStart();
   Cell cell = {start_x, start_y};
   q.push(&cell);
-
+  
   while (!q.isEmpty())
   {
     q.peek(&nextCell);
@@ -442,9 +508,15 @@ void generateCells()
     int y = temp.y;
     int x = temp.x;
 
+
     if (northVal == 0)
     {
+      
       mapMatrix[northNeigh.y][northNeigh.x] = mapMatrix[y][x] + 1;
+      if(y == start_y && x == start_x)
+      {
+        mapMatrix[northNeigh.y][northNeigh.x]++;
+      }
       temp.x = northNeigh.x;
       temp.y = northNeigh.y;
       //      Serial.print(temp.x);
@@ -458,6 +530,10 @@ void generateCells()
     if (southVal == 0)
     {
       mapMatrix[southNeigh.y][southNeigh.x] = mapMatrix[y][x] + 1;
+       if(y == start_y && x == start_x)
+      {
+        mapMatrix[southNeigh.y][southNeigh.x]++;
+      }
       temp.x = southNeigh.x;
       temp.y = southNeigh.y;
       //      Serial.print(temp.x);
@@ -471,6 +547,10 @@ void generateCells()
     if (eastVal == 0)
     {
       mapMatrix[eastNeigh.y][eastNeigh.x] = mapMatrix[y][x] + 1;
+       if(y == start_y && x == start_x)
+      {
+        mapMatrix[eastNeigh.y][eastNeigh.x]++;
+      }
       temp.x = eastNeigh.x;
       temp.y = eastNeigh.y;
       //      Serial.print(temp.x);
@@ -484,6 +564,10 @@ void generateCells()
     if (westVal == 0)
     {
       mapMatrix[westNeigh.y][westNeigh.x] = mapMatrix[y][x] + 1;
+       if(y == start_y && x == start_x)
+      {
+        mapMatrix[westNeigh.y][westNeigh.x]++;
+      }
       temp.x = westNeigh.x;
       temp.y = westNeigh.y;
       //      Serial.print(temp.x);

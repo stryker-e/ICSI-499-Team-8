@@ -1,13 +1,19 @@
 #include "Roomba_Defines_Prototype.h"
-//#include "Movement.ino"
 #include <SoftwareSerial.h>
-#include <cppQueue.h>
-//#include <SPI.h>
-//#include <SD.h>
+#include <diskio.h>
+#include <integer.h>
+#include <PetitSerial.h>
+#include <PF.h>
+#include <pff.h>
+#include <pffArduino.h>
+#include <pffconf.h>
 
 byte rxPin = 8; // rxPin: the pin on which to receive serial data
 
 byte txPin = 9; // txPin: the pin on which to transmit serial data
+
+PetitSerial PS; //For SD Card. Using PetitFat to save memory instead of SD.h
+FATFS fs; //For SD card
 
 // Create an instance of a SoftwareSerial object with the rx pin and tx pin as parameters.
 SoftwareSerial Roomba(rxPin, txPin);
@@ -43,36 +49,54 @@ void loop()
 {
 
   buttonState = digitalRead(buttonPin); // read the state of the pushbutton value:
+  button2State = digitalRead(button2Pin); // read the state of the pushbutton value:
+  
+  // Check if the buttonState has changed
+  if (button2State != lastButton2State)
+  {
+    // Check if the button is being pressed. If it is we know it went from off to on
+    if (button2State == HIGH)
+    {
+      // Change number being displayed by seven segment
+      changeMap();
+    }
+    else
+    {
+      // if the current state is LOW then the button went from on to off:
+      //Serial.println("Released button 2");
+    }
 
+    delay(10); // Delay a little bit to avoid bouncing
+  }
+  
   // Check if the buttonState has changed
   if (buttonState != lastButtonState)
   {
     // Check if the button is being pressed. If it is we know it went from off to on
     if (buttonState == HIGH)
     {
-
-      // Change number being displayed by seven segment
-      changeMap();
-
-      // map();
+      Serial.begin(9600);
+      loadMap();
+      delay(1000);
+      Serial.begin(19200);
+      printMaptoSerial();
       generateCells();
       delay(2000);
       computePath(X_SIZE, Y_SIZE, start_x, start_y);
+      verifyCoverage();
     }
     else
     {
       // if the current state is LOW then the button went from on to off:
-      Serial.println("off");
+      Serial.println("Released button 1");
     }
 
     delay(10); // Delay a little bit to avoid bouncing
   }
 
-  // printSensorReadingBinaryTest();
-  // checkBumperSensors();
-
   // save the current state as the last state, for next time through the loop
   lastButtonState = buttonState;
+  lastButton2State = button2State;
 }
 
 void changeMap()
@@ -80,7 +104,6 @@ void changeMap()
   currentMapNumber = (currentMapNumber++ % maxMaps) + 1;
   turnOff(); // reset seven segment
   displayDigit(currentMapNumber);
-  Serial.print(currentMapNumber); // Print to serial monitor
 }
 
 void wakeUp(void)
@@ -114,6 +137,89 @@ void startFull()
   Roomba.write(128); // Starts the OI (must be sent before any other command)
   Roomba.write(132); // Puts the OI into Safe Mode (Turns off all LEDs)
   delay(1000);
+}
+
+void errorHalt(char* msg) {
+  Serial.print("Error: ");
+  Serial.println(msg);
+  while(1);
+}
+
+void setupPF() {
+  Serial.begin(9600);
+  test();
+  Serial.println("\nDone!");
+}
+
+//Using Petit FAT http://elm-chan.org/fsw/ff/00index_p.html
+//Load the data from each text file corresponding to the map number into matrixMap[][]
+void loadMap(){
+  char buf[32];
+  String filename = ("MAP" + String(currentMapNumber) + ".TXT");
+  delay(1000);
+  // Initialize SD and file system.
+  if (PF.begin(&fs)) errorHalt("pf_mount");
+  // Open map file.
+  if (PF.open(filename.c_str())) errorHalt("pf_open");
+
+  int j = 0;
+  int k = 0;
+  String temp = "";
+  // Dump test file to Serial.
+  while (1) {
+    UINT nr;
+    if (PF.readFile(buf, sizeof(buf), &nr)) errorHalt("pf_read");
+    if (nr == 0) break;
+    //j = 0;
+    for(int i = 0; i < sizeof(buf); i++)
+    {
+      if(buf[i] == '\n')
+      {
+        k++;
+        j = 0;
+        temp = "";
+      }
+      if(buf[i] != ',')
+      {
+        temp += buf[i];
+      }
+      else
+      {
+//        Serial.print(atoi8(temp.c_str()));
+//        Serial.print(" x: ");
+//        Serial.print(j);
+//        Serial.print(" y: ");
+//        Serial.println(k);
+        mapMatrix[k][j] = atoi8(temp.c_str());
+        temp = "";
+        j++;
+      }
+    }
+    //Serial.write(buf, nr);
+  }
+}
+
+//Converts string into int8_t
+int8_t atoi8(const char *s)
+{
+  int8_t sign = 1;
+  int8_t v = 0;
+
+  while (*s && (*s < 48 || *s > 57))
+  {
+    if (*(s++) == '-')
+    {
+      sign = -1;
+      break;
+    }
+  }
+
+      while (*s)
+  {
+    v = (v << 1) + (v << 3) + (*(s++) - '0');
+  }
+
+  return sign * v;
 }
 
 void displayDigit(int digit)
